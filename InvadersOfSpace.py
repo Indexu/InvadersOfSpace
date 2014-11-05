@@ -1,7 +1,7 @@
 __author__ = '2307942949'
 # coding: latin-1
 
-import pygame, sys, os, random, thread, time
+import pygame, sys, os, random, thread, time, math
 from pygame.locals import *
 
 # ==== CLASSES ====
@@ -20,83 +20,90 @@ class Player(pygame.sprite.Sprite):
         self.image = player_image
         self.rect = self.image.get_rect()
         self.speed = 5
-        self.direction = "up"
+        self.surface = pygame.Surface((45, 45), SRCALPHA)
+        self.surface.blit(self.image, self.rect)
+        self.angle = 0
+
+    def rotatePlayer(self, posMouse):
+
+        playerPos = self.rect.center
+
+        difx = posMouse[0] - playerPos[0]
+        dify = posMouse[1] - playerPos[1]
+
+        if (difx < -1 or difx > 1) and (dify < -1 or dify > 1):
+            a = math.sqrt(difx ** 2 + dify ** 2)
+            self.angle = (math.degrees(math.acos(difx / a)) + 90) * (-1)
+
+            if dify < 0 :
+                self.angle = math.degrees(math.acos(difx / a)) - 90
+
+        temp_surface = pygame.transform.rotate(self.surface, self.angle)
+        temp_base = temp_surface.get_rect()
+        temp_base.center = self.rect.center
+
+        self.image = pygame.transform.rotate(player_image, self.angle)
 
     def move(self):
         key = pygame.key.get_pressed()
-        if key[pygame.K_LEFT]:  # Left
+        if key[pygame.K_a]:  # Left
             if player.rect.x < -60: # Wrap around
                 player.rect.x = WINDOWWIDTH
             player.rect.x -= self.speed
-            self.image = pygame.transform.rotate(player_image, 90)
-            self.direction = "left"
 
-        elif key[pygame.K_RIGHT]:  # Right
+        if key[pygame.K_d]:  # Right
             if player.rect.x > WINDOWWIDTH: # Wrap around
                 player.rect.x = - 60
             player.rect.x += self.speed
-            self.image = pygame.transform.rotate(player_image, 270)
-            self.direction = "right"
 
-        elif key[pygame.K_UP]:  # Up
+        if key[pygame.K_w]:  # Up
             if player.rect.y <= 7:  # Border
                 player.rect.y = 7
             player.rect.y -= self.speed
-            self.image = pygame.transform.rotate(player_image, 0)
-            self.direction = "up"
 
-        elif key[pygame.K_DOWN]:  # Down
+        if key[pygame.K_s]:  # Down
             if player.rect.y >= WINDOWHEIGHT - 35:  # Border
                 player.rect.y = WINDOWHEIGHT - 35
             player.rect.y += self.speed
-            self.image = pygame.transform.rotate(player_image, 180)
-            self.direction = "down"
 
 # Projectile
 class Missile(pygame.sprite.Sprite):
-    def __init__(self):
+    def __init__(self, posStart, posMouse, speed=7):
         pygame.sprite.Sprite.__init__(self)
         self.image = missile_image
         self.rect = self.image.get_rect()
-        self.direction = "up"
-        self.speed = 7
+        self.rect.x = posStart[0] + 14
+        self.rect.y = posStart[1] - 10
+        self.speed = speed
+
+        # Angle calculation - Takk Alexey
+        difx = posMouse[0] - posStart[0]
+        dify = posMouse[1] - posStart[1]
+        z = math.sqrt(difx**2 + dify**2)
+
+
+        if dify < 0:
+            self.angle = math.degrees(math.acos(difx / z)) - 90
+        else:
+            self.angle = (math.degrees(math.acos(difx / z)) + 90) * (-1)
+
+        self.direction = [difx / z * speed, dify / z * speed]
+
 
     def moveMissile(self):
+
+        self.rect.x += self.direction[0]
+        self.rect.y += self.direction[1]
+
+        # Border
         delete = False
-        if self.direction == "up":
-            if self.rect.y < -60:  # Border
+        if self.rect.y < -60 or self.rect.y > WINDOWHEIGHT or self.rect.x < -60 or self.rect.x > WINDOWWIDTH:
                 delete = True
-            self.rect.y -= self.speed
-
-        elif self.direction == "down":
-            if self.rect.y > WINDOWHEIGHT:  # Border
-                delete = True
-            self.rect.y += self.speed
-
-        elif self.direction == "left":
-            if self.rect.x < -60:  # Border
-                delete = True
-            self.rect.x -= self.speed
-
-        elif self.direction == "right":
-            if self.rect.x > WINDOWWIDTH:  # Border
-                delete = True
-            self.rect.x += self.speed
 
         return delete
 
     def rotateMissile(self):
-        if self.direction == "up":
-            self.image = pygame.transform.rotate(missile_image, 0)
-
-        elif self.direction == "down":
-            self.image = pygame.transform.rotate(missile_image, 180)
-
-        elif self.direction == "left":
-            self.image = pygame.transform.rotate(missile_image, 90)
-
-        elif self.direction == "right":
-            self.image = pygame.transform.rotate(missile_image, 270)
+        self.image = pygame.transform.rotate(missile_image, self.angle)
 
 # === Threads ===
 # Populate asteroids
@@ -140,11 +147,13 @@ SCREEN = pygame.display.set_mode((WINDOWWIDTH, WINDOWHEIGHT))
 pygame.display.set_caption(TITLE)
 
 # ==== VARIABLES ====
-player_image = pygame.image.load('img/ship.png').convert_alpha()
+player_image = pygame.image.load('img/alienblaster.png').convert_alpha()
 asteroid_image = pygame.image.load('teacher shit/images/asteroid.png').convert_alpha()
 missile_image = pygame.image.load('img/laser.png').convert_alpha()
 background = pygame.image.load('img/blackhole.png').convert_alpha()
 backgroundRect = background.get_rect()
+
+MOUSEDOWN = False
 
 WHITE = (255, 255, 255)
 SCORE = 0
@@ -177,26 +186,33 @@ while True:
         if event.type == QUIT:
             pygame.quit()
             sys.exit()
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
-                shot = Missile()
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            MOUSEDOWN = True
+        if event.type == pygame.MOUSEBUTTONUP:
+            MOUSEDOWN = False
 
-                # Horizontal
-                if player.direction == "left" or player.direction == "right":
-                    shot.rect.x = player.rect.x + 14
-                    shot.rect.y = player.rect.y + 15
-                # Vertical
-                else:
-                    shot.rect.x = player.rect.x + 14
-                    shot.rect.y = player.rect.y - 15
-
-                shot.direction = player.direction
-                shot.rotateMissile()
-                missile_list.add(shot)
-                all_sprites_list.add(shot)
+    # Mouse position
+    mousePos = pygame.mouse.get_pos()
 
     # Player movement
     player.move()
+    player.rotatePlayer(mousePos)
+
+    # Shooting
+    if MOUSEDOWN:
+        # player position
+        startPos = (player.rect.x, player.rect.y)
+
+        # Create the missile
+        shot = Missile(startPos, mousePos)
+
+        # Rotate it
+        shot.rotateMissile()
+
+        # Add it to the sprite lists
+        missile_list.add(shot)
+        all_sprites_list.add(shot)
+
 
     SCREEN.fill(WHITE)
 
